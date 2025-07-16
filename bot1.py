@@ -4,9 +4,9 @@ from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
 # Replace with your Telegram Bot Token
-TELEGRAM_BOT_TOKEN = 'YOUR_BOT_TOKEN'
+TELEGRAM_BOT_TOKEN = '7638058136:AAFkNSd-3t1Pep5doyiJv86yxx_iP5XPipQ'
 # Replace with your n8n webhook URL
-N8N_WEBHOOK_URL = 'YOUR_N8N_WEBHOOK_URL'
+N8N_WEBHOOK_URL = 'https://your-service-name.onrender.com/webhook/a35f885c-4c5a-48fd-a2a2-c0ae7e52fe0c/webhook'
 
 # Set up logging
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
