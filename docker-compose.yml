@@ -1,0 +1,43 @@
+```yaml
+version: '3.8'
+services:
+  bot:
+    build: .
+    environment:
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - DAILYMOTION_API_KEY=${DAILYMOTION_API_KEY}
+      - DAILYMOTION_API_SECRET=${DAILYMOTION_API_SECRET}
+      - DAILYMOTION_USERNAME=${DAILYMOTION_USERNAME}
+      - DAILYMOTION_PASSWORD=${DAILYMOTION_PASSWORD}
+      - DAILYMOTION_EMAIL=${DAILYMOTION_EMAIL}
+      - DATABASE_URL=${DATABASE_URL}
+      - WEBHOOK_URL=${WEBHOOK_URL}
+      - LOCAL_API_URL=http://telegram-api:8081
+    depends_on:
+      - telegram-api
+      - postgres
+    ports:
+      - "5000:5000"
+
+  telegram-api:
+    image: reddec/telegram-bot-api:latest
+    environment:
+      - TELEGRAM_API_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - TELEGRAM_LOCAL=true
+    ports:
+      - "8081:8081"
+
+  postgres:
+    image: postgres:13
+    environment:
+      - POSTGRES_DB=${DB_NAME}
+      - POSTGRES_USER=${DB_USER}
+      - POSTGRES_PASSWORD=${DB_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+
+volumes:
+  postgres_data:
+```
