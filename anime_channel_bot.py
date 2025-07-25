@@ -1,4 +1,3 @@
-```python
 # telegram_dailymotion_bot.py
 import os
 import telebot
