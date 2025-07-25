@@ -1,3 +1,4 @@
+```python
 import os
 import telebot
 from telebot.types import ReplyKeyboardMarkup, KeyboardButton
@@ -29,19 +30,23 @@ DAILYMOTION_EMAIL = os.getenv('DAILYMOTION_EMAIL')
 DATABASE_URL = os.getenv('DATABASE_URL')
 if DATABASE_URL:
     db_url = urlparse(DATABASE_URL)
-    DB_HOST = db_url.hostname
+    DB_HOST = db_url.hostname or 'postgres.railway.internal'
     DB_NAME = db_url.path[1:]  # Remove leading slash
     DB_USER = db_url.username
     DB_PASSWORD = db_url.password
     DB_PORT = db_url.port or 5432
 else:
-    DB_HOST = os.getenv('DB_HOST')
+    DB_HOST = os.getenv('DB_HOST', 'postgres.railway.internal')
     DB_NAME = os.getenv('DB_NAME')
     DB_USER = os.getenv('DB_USER')
     DB_PASSWORD = os.getenv('DB_PASSWORD')
     DB_PORT = os.getenv('DB_PORT', '5432')
 
-# Initialize bot with standard API (no local API for Render)
+# Local Telegram API for large files
+LOCAL_API_URL = os.getenv('LOCAL_API_URL', 'http://telegram-api:8081')
+telebot.apihelper.API_URL = f"{LOCAL_API_URL}/bot{{0}}/{{1}}"
+
+# Initialize bot
 bot = telebot.TeleBot(TOKEN)
 
 # Initialize Dailymotion client
@@ -231,14 +236,17 @@ def handle_text(message):
         bot.send_message(chat_id, "Received details! Uploading to Dailymotion...")
         try:
             file_info = bot.get_file(file_id)
-            file_url = f"https://api.telegram.org/file/bot{TOKEN}/{file_info.file_path}"  # Standard API
+            file_url = f"{LOCAL_API_URL}/file/bot{TOKEN}/{file_info.file_path}"
+            response = requests.get(file_url, stream=True)
+            if response.status_code != 200:
+                bot.send_message(chat_id, "Error downloading video.")
+                user_states.pop(chat_id)
+                return
             video_path = f"/tmp/temp_{chat_id}_{int(time.time())}.mp4"
-            with requests.get(file_url, stream=True) as r:
-                r.raise_for_status()
-                with open(video_path, 'wb') as f:
-                    for chunk in r.iter_content(chunk_size=8192):
-                        if chunk:  # Filter out keep-alive chunks
-                            f.write(chunk)
+            with open(video_path, 'wb') as f:
+                for chunk in response.iter_content(chunk_size=8192):
+                    if chunk:
+                        f.write(chunk)
             logger.info(f"File downloaded to {video_path}")
 
             dailymotion.upload(video_path, title=title, tags=hashtags.split(), published=True)
@@ -278,7 +286,7 @@ def webhook():
 
 # Set up webhook
 def set_webhook():
-    webhook_url = os.getenv('WEBHOOK_URL', f'https://tele-bot-iewr.onrender.com/{TOKEN}')
+    webhook_url = os.getenv('WEBHOOK_URL', f'https://<your-railway-app>.railway.app/{TOKEN}')
     bot.remove_webhook()
     time.sleep(0.1)
     bot.set_webhook(url=webhook_url)
@@ -288,4 +296,5 @@ if __name__ == '__main__':
     init_db()
     setup_menu_commands()
     set_webhook()
-    app.run(host='0.0.0.0', port=int(os.getenv('PORT', 10000)))
+    app.run(host='0.0.0.0', port=int(os.getenv('PORT', 5000)))
+```
