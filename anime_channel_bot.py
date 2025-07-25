@@ -7,6 +7,7 @@ from psycopg2 import Error
 from dailymotion import Dailymotion
 import logging
 import time
+import signal
 from flask import Flask, request
 from urllib.parse import urlparse
 
@@ -24,7 +25,7 @@ DAILYMOTION_API_SECRET = os.getenv('DAILYMOTION_API_SECRET')
 DAILYMOTION_USERNAME = os.getenv('DAILYMOTION_USERNAME')
 DAILYMOTION_PASSWORD = os.getenv('DAILYMOTION_PASSWORD')
 
-# Parse DATABASE_URL for PostgreSQL (for tracking uploads)
+# Parse DATABASE_URL for PostgreSQL
 DATABASE_URL = os.getenv('DATABASE_URL')
 if DATABASE_URL:
     db_url = urlparse(DATABASE_URL)
@@ -110,6 +111,7 @@ def send_welcome(message):
     except Exception as e:
         logger.error(f"Error in /start: {e}")
         bot.send_message(chat_id, "An error occurred. Please try again later.")
+        user_states.pop(chat_id, None)
 
 @bot.message_handler(commands=['upload'])
 def upload_video(message):
@@ -120,6 +122,7 @@ def upload_video(message):
     except Exception as e:
         logger.error(f"Error in /upload: {e}")
         bot.send_message(chat_id, "An error occurred. Please try again later.")
+        user_states.pop(chat_id, None)
 
 # Handle video
 @bot.message_handler(content_types=['video'])
@@ -131,12 +134,13 @@ def handle_video(message):
             return
         file_id = message.video.file_id
         bot.send_message(chat_id, "Received video! Enter the video title:")
-        user_states[chat_id] = {'state': 'awaiting_title', 'file_id': file_id}
+        user_states[chat_id] = {'state': 'awaiting_title', 'file_id': file_id, 'start_time': time.time()}
     except Exception as e:
         logger.error(f"Error in handle_video: {e}")
         bot.send_message(chat_id, "An error occurred. Please try again later.")
+        user_states.pop(chat_id, None)
 
-# Handle text input
+# Handle text input with timeout
 @bot.message_handler(content_types=['text'])
 def handle_text(message):
     chat_id = message.chat.id
@@ -147,10 +151,18 @@ def handle_text(message):
     state = user_states[chat_id]
     try:
         if isinstance(state, dict) and state['state'] == 'awaiting_title':
+            if time.time() - state.get('start_time', 0) > 300:  # 5-minute timeout
+                bot.send_message(chat_id, "Timeout reached. Please start over with /upload.")
+                user_states.pop(chat_id)
+                return
             user_states[chat_id]['state'] = 'awaiting_hashtags'
             user_states[chat_id]['title'] = text
             bot.send_message(chat_id, "Enter hashtags (e.g., #fun #video):")
         elif isinstance(state, dict) and state['state'] == 'awaiting_hashtags':
+            if time.time() - state.get('start_time', 0) > 300:  # 5-minute timeout
+                bot.send_message(chat_id, "Timeout reached. Please start over with /upload.")
+                user_states.pop(chat_id)
+                return
             file_id = state['file_id']
             title = state['title']
             hashtags = text
@@ -175,7 +187,7 @@ def handle_text(message):
             try:
                 file_info = bot.get_file(file_id)
                 file_url = f"{LOCAL_API_URL}/file/bot{TOKEN}/{file_info.file_path}"
-                response = requests.get(file_url, stream=True)
+                response = requests.get(file_url, stream=True, timeout=30)
                 if response.status_code != 200:
                     bot.send_message(chat_id, "Error downloading video.")
                     user_states.pop(chat_id)
@@ -187,8 +199,17 @@ def handle_text(message):
                             f.write(chunk)
                 logger.info(f"File downloaded to {video_path}")
 
-                dailymotion.upload(video_path, title=title, tags=hashtags.split(), published=True)
-                video_url = dailymotion.get('/me/videos', fields=['url'])['list'][0]['url']
+                # Set upload timeout
+                def upload_timeout(signum, frame):
+                    raise TimeoutError("Upload to Dailymotion timed out")
+                signal.signal(signal.SIGALRM, upload_timeout)
+                signal.alarm(600)  # 10-minute timeout
+                try:
+                    dailymotion.upload(video_path, title=title, tags=hashtags.split(), published=True)
+                    video_url = dailymotion.get('/me/videos', fields=['url'])['list'][0]['url']
+                finally:
+                    signal.alarm(0)  # Cancel timeout
+
                 conn = get_db_connection()
                 if conn:
                     try:
@@ -199,7 +220,7 @@ def handle_text(message):
                     finally:
                         conn.close()
                 bot.send_message(chat_id, f"Done! Watch it here: {video_url}")
-            except Exception as e:
+            except (TimeoutError, Exception) as e:
                 logger.error(f"Error uploading to Dailymotion: {e}")
                 bot.send_message(chat_id, f"Upload failed: {str(e)}")
                 conn = get_db_connection()
@@ -226,13 +247,22 @@ def webhook():
     bot.process_new_updates([update])
     return '', 200
 
-# Set up webhook
+# Set up webhook with forced logging
 def set_webhook():
     webhook_url = os.getenv('WEBHOOK_URL', f'https://<your-railway-app>.railway.app/{TOKEN}')
-    bot.remove_webhook()
-    time.sleep(0.1)
-    bot.set_webhook(url=webhook_url)
-    logger.info(f"Webhook set to {webhook_url}")
+    try:
+        bot.remove_webhook()
+        time.sleep(0.1)
+        bot.set_webhook(url=webhook_url)
+        logger.info(f"Webhook successfully set to: {webhook_url}")
+    except Exception as e:
+        logger.error(f"Failed to set webhook to {webhook_url}: {e}")
+
+# Health check endpoint
+@app.route('/health')
+def health_check():
+    logger.info("Health check endpoint hit")
+    return "OK", 200
 
 if __name__ == '__main__':
     init_db()
