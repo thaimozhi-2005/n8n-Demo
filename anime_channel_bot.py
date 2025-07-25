@@ -279,4 +279,3 @@ if __name__ == '__main__':
     setup_menu_commands()
     set_webhook()
     app.run(host='0.0.0.0', port=int(os.getenv('PORT', 5000)))
-```
