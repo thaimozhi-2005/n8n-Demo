@@ -1,0 +1,14 @@
+json
+{
+  "$schema": "https://railway.app/railway.schema.json",
+  "build": {
+    "builder": "DOCKERFILE",
+    "dockerfilePath": "Dockerfile"
+  },
+  "deploy": {
+    "startCommand": "gunicorn --bind 0.0.0.0:$PORT telegram_dailymotion_bot:app",
+    "restartPolicy": {
+      "type": "always"
+    }
+  }
+}
